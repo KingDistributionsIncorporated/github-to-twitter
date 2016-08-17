@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:twitter="http://www.mulesoft.org/schema/mule/twitter" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:core="http://www.mulesoft.org/schema/mule/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/twitter http://www.mulesoft.org/schema/mule/twitter/current/mule-twitter.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+    <twitter:config name="Twitter__Configuration" accessKey="" accessSecret="" consumerKey="" consumerSecret="" doc:name="Twitter: Configuration"/>
+    <http:request-config name="github" protocol="HTTPS" host="api.github.com" port="443" usePersistentConnections="false" doc:name="HTTP Request Configuration">
+        <http:digest-authentication username="" password=""/>
+    </http:request-config>
+    <json:json-to-object-transformer returnClass="java.lang.Object" name="JSON_to_Object" doc:name="JSON to Object"/>
+    <json:object-to-json-transformer name="Object_to_JSON" doc:name="Object to JSON"/>
+    <flow name="starter" processingStrategy="synchronous">
+        <poll doc:name="Poll">
+            <fixed-frequency-scheduler frequency="10000" startDelay="1000"/>
+            <set-payload value="#[true]" doc:name="Set Payload"/>
+        </poll>
+        <flow-ref name="loadState" doc:name="loadState"/>
+        <flow-ref name="synchronizeCommits" doc:name="synchronizeCommits"/>
+        <flow-ref name="saveState" doc:name="Save State"/>
+    </flow>
+    <flow name="loadState" processingStrategy="synchronous">
+        <set-variable variableName="stateFile" value="#[app.workDir]/state.json" doc:name="File name"/>
+        <scripting:component doc:name="Read file">
+            <scripting:script engine="Groovy"><![CDATA[new File(flowVars['stateFile']).getText('UTF-8')]]></scripting:script>
+        </scripting:component>
+        <json:json-to-object-transformer returnClass="java.lang.Object" doc:name="Transfer JSON to Object"/>
+        <set-session-variable variableName="state" value="#[payload]" doc:name="Save state to Session Variable"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <set-session-variable variableName="state" value="#[['lastCommit': null, 'lastTime': null]]" doc:name="Load Default State"/>
+        </catch-exception-strategy>
+    </flow>
+    <sub-flow name="saveState">
+        <set-payload value="#[sessionVars.state]" doc:name="Set Payload"/>
+        <file:outbound-endpoint path="#[app.workDir]" outputPattern="state.json" responseTimeout="10000" transformer-refs="Object_to_JSON" doc:name="Save File"/>
+    </sub-flow>
+    <flow name="synchronizeCommits" processingStrategy="synchronous">
+        <http:request config-ref="github" path="/repos/MichalKalita-profiq/test/commits" method="GET" doc:name="get Github commits">
+            <http:request-builder>
+                <http:query-param paramName="access_token" value="50a1de8dda5bfdd50f05e4a16d17352f5b39b9a3"/>
+                <http:query-param paramName="since" value="#[sessionVars.state.lastTime == null ? &quot;0000-01-01T00:00:00Z&quot; : sessionVars.state.lastTime]"/>
+            </http:request-builder>
+        </http:request>
+        <json:json-to-object-transformer returnClass="java.lang.Object" metadata:id="83e85d42-3667-4ac4-a8e7-d364c5a8470b" doc:name="JSON to Object"/>
+        <logger message="get github commits, limit #[message.inboundProperties.'x-ratelimit-limit'], remaining #[message.inboundProperties.'x-ratelimit-remaining']" level="INFO" doc:name="Log api status"/>
+        <choice doc:name="Choice event">
+            <when expression="payload.size() &gt; 0 &amp;&amp; payload[0].sha != sessionVars.state.lastCommit">
+                <foreach doc:name="For Each commit">
+                    <choice doc:name="Choice">
+                        <when expression="payload.sha != sessionVars.state.lastCommit">
+                            <expression-component doc:name="Create tweet"><![CDATA[sessionVars.lastCommit = payload.sha;
+sessionVars.lastTime = payload.commit.committer.date;
+payload = payload.sha.substring(0,8) + " " + payload.commit.message + " by " + payload.commit.author.name;]]></expression-component>
+                            <flow-ref name="twitterFlow" doc:name="twitterFlow"/>
+                        </when>
+                        <otherwise>
+                            <logger message="Commit #[payload.sha] ignored, because is already commited" level="INFO" doc:name="Logger"/>
+                        </otherwise>
+                    </choice>
+                </foreach>
+                <expression-component doc:name="Save last time and last commit"><![CDATA[sessionVars.state.lastCommit = sessionVars.lastCommit; 
+sessionVars.state.lastTime = sessionVars.lastTime;]]></expression-component>
+            </when>
+            <otherwise>
+                <logger message="Twitter is synchronized with commits on Github" level="INFO" doc:name="Logger"/>
+            </otherwise>
+        </choice>
+    </flow>
+    <flow name="twitterFlow">
+        <logger message="#[payload]" level="INFO" doc:name="Log tweet"/>
+        <twitter:update-status config-ref="Twitter__Configuration" status="#[payload]" doc:name="Send tweet"/>
+        <catch-exception-strategy logException="false" doc:name="catch_exception_strategy"/>
+    </flow>
+</mule>

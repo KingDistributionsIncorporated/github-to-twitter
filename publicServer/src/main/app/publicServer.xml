@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:twitter="http://www.mulesoft.org/schema/mule/twitter" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/twitter http://www.mulesoft.org/schema/mule/twitter/current/mule-twitter.xsd">
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <twitter:config name="Twitter__Configuration" accessKey="" accessSecret="" consumerKey="" consumerSecret="" doc:name="Twitter: Configuration"/>
+    <flow name="publicserver2Flow">
+        <http:listener config-ref="HTTP_Listener_Configuration" path="/github" doc:name="Github Webhooks"/>
+        <json:json-to-object-transformer returnClass="java.lang.Object" doc:name="JSON to Object"/>
+        <set-variable variableName="event" value="#[message.inboundProperties.'x-github-event']" doc:name="Event name"/>
+        <choice doc:name="Choice event">
+            <when expression="flowVars.event == &quot;push&quot;">
+                <foreach collection="payload.commits" doc:name="For each commit">
+                    <set-payload value="#[payload.id.substring(0,8)] #[payload.message] by #[payload.author.name]" doc:name="Create tweet"/>
+                    <flow-ref name="twitterFlow" doc:name="twitterFlow"/>
+                </foreach>
+                <set-payload value="thx for push event" doc:name="Result"/>
+            </when>
+            <when expression="flowVars.event == null">
+                <set-payload value="Application working. Event not recognized." doc:name="Missing event name"/>
+            </when>
+            <otherwise>
+                <set-payload value="Event #[flowVars.event] ignored" doc:name="Event not recognized"/>
+            </otherwise>
+        </choice>
+    </flow>
+    <flow name="twitterFlow">
+        <logger message="#[payload]" level="INFO" doc:name="Log tweet"/>
+        <twitter:update-status config-ref="Twitter__Configuration" status="#[payload]" doc:name="Send tweet"/>
+        <catch-exception-strategy logException="false" doc:name="catch_exception_strategy"/>
+    </flow>
+</mule>
