@@ -1,33 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+Copyright ☕ 2016 profiq inc. http://www.profiq.com
 
-<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:twitter="http://www.mulesoft.org/schema/mule/twitter" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:core="http://www.mulesoft.org/schema/mule/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ -->
+<mule xmlns:github="http://www.mulesoft.org/schema/mule/github" xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:twitter="http://www.mulesoft.org/schema/mule/twitter" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
 http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
 http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
-http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
 http://www.mulesoft.org/schema/mule/twitter http://www.mulesoft.org/schema/mule/twitter/current/mule-twitter.xsd
 http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
-http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/github http://www.mulesoft.org/schema/mule/github/current/mule-github.xsd">
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
     <twitter:config name="Twitter__Configuration" accessKey="" accessSecret="" consumerKey="" consumerSecret="" doc:name="Twitter: Configuration"/>
-    <http:request-config name="github" protocol="HTTPS" host="api.github.com" port="443" usePersistentConnections="false" doc:name="HTTP Request Configuration">
+    <http:request-config name="github" protocol="HTTPS" host="api.github.com" port="443" doc:name="HTTP Request Configuration" usePersistentConnections="false">
         <http:digest-authentication username="" password=""/>
     </http:request-config>
     <json:json-to-object-transformer returnClass="java.lang.Object" name="JSON_to_Object" doc:name="JSON to Object"/>
-    <json:object-to-json-transformer name="Object_to_JSON" doc:name="Object to JSON"/>
+    <json:object-to-json-transformer name="Object_to_JSON" doc:name="Object to JSON"/>   
     <flow name="starter" processingStrategy="synchronous">
         <poll doc:name="Poll">
-            <fixed-frequency-scheduler frequency="10000" startDelay="1000"/>
+            <fixed-frequency-scheduler frequency="10000"  startDelay="1000"/>
             <set-payload value="#[true]" doc:name="Set Payload"/>
         </poll>
         <flow-ref name="loadState" doc:name="loadState"/>
         <flow-ref name="synchronizeCommits" doc:name="synchronizeCommits"/>
         <flow-ref name="saveState" doc:name="Save State"/>
     </flow>
-    <flow name="loadState" processingStrategy="synchronous">
+    <flow name="loadState"  processingStrategy="synchronous">
         <set-variable variableName="stateFile" value="#[app.workDir]/state.json" doc:name="File name"/>
         <scripting:component doc:name="Read file">
             <scripting:script engine="Groovy"><![CDATA[new File(flowVars['stateFile']).getText('UTF-8')]]></scripting:script>
         </scripting:component>
-        <json:json-to-object-transformer returnClass="java.lang.Object" doc:name="Transfer JSON to Object"/>
+        <json:json-to-object-transformer doc:name="Transfer JSON to Object" returnClass="java.lang.Object"/>
         <set-session-variable variableName="state" value="#[payload]" doc:name="Save state to Session Variable"/>
         <catch-exception-strategy doc:name="Catch Exception Strategy">
             <set-session-variable variableName="state" value="#[['lastCommit': null, 'lastTime': null]]" doc:name="Load Default State"/>
@@ -35,7 +56,7 @@ http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/cor
     </flow>
     <sub-flow name="saveState">
         <set-payload value="#[sessionVars.state]" doc:name="Set Payload"/>
-        <file:outbound-endpoint path="#[app.workDir]" outputPattern="state.json" responseTimeout="10000" transformer-refs="Object_to_JSON" doc:name="Save File"/>
+        <file:outbound-endpoint path="#[app.workDir]" outputPattern="state.json"  doc:name="Save File" responseTimeout="10000" transformer-refs="Object_to_JSON"/>
     </sub-flow>
     <flow name="synchronizeCommits" processingStrategy="synchronous">
         <http:request config-ref="github" path="/repos/MichalKalita-profiq/test/commits" method="GET" doc:name="get Github commits">
